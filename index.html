@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>计算器</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#2f6bff">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="计算器">
+<style>
+  :root{--bg:#f4f6f9;--ink:#1a2333;--muted:#7a8699;--line:#e2e7ef;--yellow:#fff3c4;--green:#e3f3e8;--accent:#2f6bff}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1200px;margin:0 auto;padding:24px 16px 60px}
+  header{margin-bottom:18px}
+  header h1{font-size:24px;margin:0 0 4px}
+  header p{color:var(--muted);font-size:13px;margin:0}
+  .section{background:#fff;border:1px solid var(--line);border-radius:14px;padding:18px;margin-bottom:22px;box-shadow:0 1px 3px rgba(20,30,50,.06)}
+  .section h2{font-size:18px;margin:0 0 12px}
+  .params{display:flex;flex-wrap:wrap;gap:14px;margin-bottom:14px;padding:10px 12px;background:#f8fafd;border:1px solid var(--line);border-radius:10px}
+  .params .p{display:flex;align-items:center;gap:6px;font-size:13px;color:#3d4657}
+  .params .p b{font-weight:600}
+  .params input{width:72px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--yellow);font-size:14px;text-align:right}
+  .table-scroll{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
+  table{border-collapse:collapse;width:100%;min-width:780px}
+  th{background:#f1f4f9;color:#3d4657;font-size:12.5px;font-weight:600;padding:9px 8px;border-bottom:1px solid var(--line);text-align:center;white-space:nowrap}
+  td{border-bottom:1px solid var(--line);padding:6px 8px;text-align:center}
+  tr:last-child td{border-bottom:none}
+  td input{width:100%;min-width:78px;padding:7px 8px;border:1px solid var(--line);border-radius:8px;background:var(--yellow);font-size:14px;text-align:right;color:var(--ink)}
+  td input.text{min-width:120px;text-align:left}
+  td .calc{display:block;padding:7px 8px;background:var(--green);border-radius:8px;font-size:14px;font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+  td .calc.main{font-weight:700}
+  td .calc.neg{color:#e5453c}
+  .del{background:none;border:none;color:#c0c7d1;font-size:16px;cursor:pointer;padding:4px 6px;line-height:1}
+  .del:hover{color:#e5453c}
+  .actions{margin-top:12px;display:flex;gap:10px}
+  button.btn{background:var(--accent);color:#fff;border:none;border-radius:9px;padding:8px 14px;font-size:13px;cursor:pointer}
+  button.btn.ghost{background:#fff;color:var(--accent);border:1px solid var(--accent)}
+  footer{margin-top:20px;color:var(--muted);font-size:12.5px;line-height:1.7}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>计算器</h1>
+    <p>横排记录表：黄色格填写，绿色格自动算；倍数/折扣/让利在每张表上方可改；数据自动保存在本机浏览器</p>
+  </header>
+  <div id="app"></div>
+  <footer>
+    <b>说明</b><br>
+    · 2倍上架：上架价 = 来源价格×倍数 + 加价；折扣价 = 上架价×折扣/10；利润 = 折扣价 − 来源价格 − 新人礼金；利润率 = 利润÷来源价格<br>
+    · 3倍上架：上架价 = 来源价格×倍数；限时折扣价 = 上架价×折扣/10；让利金额 = 上架价×让利%（固定）；让利后价 = 限时折扣价 − 让利金额；优惠券折后价 = 让利后价×(优惠券/10)；利润 = 优惠券折后价 − 来源价格<br>
+    · 优惠券折数留空按 10 折（不打折）计算
+  </footer>
+</div>
+<script>
+  var CONFIGS = [
+    {
+      id: 'double', title: '2倍上架',
+      params: [
+        { key: 'multiple', label: '上架倍数', default: 2 },
+        { key: 'extra', label: '额外加价(元)', default: 20 },
+        { key: 'discount', label: '限时折扣(折)', default: 5 }
+      ],
+      columns: [
+        { key: 'name', label: '商家名称', type: 'text' },
+        { key: 'price', label: '商品来源价格', type: 'num' },
+        { key: 'list', label: '上架价', type: 'calc' },
+        { key: 'sell', label: '限时折扣价', type: 'calc' },
+        { key: 'gift', label: '新人礼金', type: 'num' },
+        { key: 'rate', label: '利润率', type: 'pct' },
+        { key: 'profit', label: '利润', type: 'calc', main: true }
+      ],
+      compute: function (row, p) {
+        var price = parseFloat(row.price);
+        if (isNaN(price)) return {};
+        var gift = parseFloat(row.gift) || 0;
+        var list = price * (p.multiple || 0) + (p.extra || 0);
+        var sell = list * (p.discount || 0) / 10;
+        var profit = sell - price - gift;
+        var rate = price > 0 ? profit / price * 100 : null;
+        return { list: list, sell: sell, profit: profit, rate: rate };
+      }
+    },
+    {
+      id: 'triple', title: '3倍上架',
+      params: [
+        { key: 'multiple', label: '上架倍数', default: 3 },
+        { key: 'discount', label: '限时限量折扣(折)', default: 8 },
+        { key: 'rebate', label: '让利比例(%)', default: 15 }
+      ],
+      columns: [
+        { key: 'name', label: '商品名称', type: 'text' },
+        { key: 'price', label: '商品来源价格', type: 'num' },
+        { key: 'list', label: '上架价', type: 'calc' },
+        { key: 'p8', label: '限时折扣价', type: 'calc' },
+        { key: 'rebateAmt', label: '让利金额', type: 'calc' },
+        { key: 'afterRebate', label: '让利后价', type: 'calc' },
+        { key: 'coupon', label: '优惠券折数', type: 'num' },
+        { key: 'afterCoupon', label: '优惠券折后价', type: 'calc' },
+        { key: 'rate', label: '利润率', type: 'pct' },
+        { key: 'profit', label: '利润', type: 'calc', main: true }
+      ],
+      compute: function (row, p) {
+        var price = parseFloat(row.price);
+        if (isNaN(price)) return {};
+        var coupon = parseFloat(row.coupon);
+        if (isNaN(coupon)) coupon = 10;
+        var list = price * (p.multiple || 0);
+        var p8 = list * (p.discount || 0) / 10;
+        var rebateAmt = list * (p.rebate || 0) / 100;
+        var afterRebate = p8 - rebateAmt;
+        var afterCoupon = afterRebate * coupon / 10;
+        var profit = afterCoupon - price;
+        var rate = price > 0 ? profit / price * 100 : null;
+        return { list: list, p8: p8, rebateAmt: rebateAmt, afterRebate: afterRebate, afterCoupon: afterCoupon, profit: profit, rate: rate };
+      }
+    }
+  ];
+
+  var STATE = load();
+  function load() { try { return JSON.parse(localStorage.getItem('calc_v1') || '{}'); } catch (e) { return {}; } }
+  function save() { try { localStorage.setItem('calc_v1', JSON.stringify(STATE)); } catch (e) {} }
+  function getState(cfg) {
+    if (!STATE[cfg.id]) {
+      var params = {};
+      cfg.params.forEach(function (p) { params[p.key] = p.default; });
+      STATE[cfg.id] = { params: params, rows: Array.from({ length: 5 }, function () { return {}; }) };
+    }
+    return STATE[cfg.id];
+  }
+
+  function recalcRow(cfg, i) {
+    var st = STATE[cfg.id];
+    var res = {};
+    try { res = cfg.compute(st.rows[i], st.params) || {}; } catch (e) {}
+    cfg.columns.forEach(function (col) {
+      if (col.type !== 'calc' && col.type !== 'pct') return;
+      var el = document.querySelector('[data-cfg="' + cfg.id + '"][data-row="' + i + '"][data-key="' + col.key + '"]');
+      if (!el) return;
+      var v = res[col.key];
+      var txt = '—';
+      if (v != null && isFinite(v)) txt = (col.type === 'pct') ? v.toFixed(2) + '%' : '¥' + v.toFixed(2);
+      el.textContent = txt;
+      if (col.type !== 'pct') el.classList.toggle('neg', typeof v === 'number' && v < 0);
+    });
+  }
+  function recalcAll(cfg) {
+    var st = STATE[cfg.id];
+    st.rows.forEach(function (_, i) { recalcRow(cfg, i); });
+  }
+
+  function renderRows(cfg) {
+    var st = getState(cfg);
+    var tbody = document.getElementById('tb-' + cfg.id);
+    tbody.innerHTML = '';
+    st.rows.forEach(function (row, i) {
+      var tr = document.createElement('tr');
+      cfg.columns.forEach(function (col) {
+        var td = document.createElement('td');
+        if (col.type === 'text' || col.type === 'num') {
+          var inp = document.createElement('input');
+          inp.type = (col.type === 'text') ? 'text' : 'number';
+          inp.step = 'any';
+          if (col.type === 'text') inp.className = 'text'; else inp.inputMode = 'decimal';
+          inp.value = row[col.key] || '';
+          inp.placeholder = (col.type === 'text') ? '名称' : '';
+          inp.addEventListener('input', function () {
+            row[col.key] = inp.value;
+            save();
+            recalcRow(cfg, i);
+          });
+          td.appendChild(inp);
+        } else {
+          var sp = document.createElement('span');
+          sp.className = 'calc' + (col.main ? ' main' : '');
+          sp.dataset.cfg = cfg.id; sp.dataset.row = i; sp.dataset.key = col.key;
+          sp.textContent = '—';
+          td.appendChild(sp);
+        }
+        tr.appendChild(td);
+      });
+      var tdDel = document.createElement('td');
+      var del = document.createElement('button');
+      del.className = 'del'; del.textContent = '×'; del.title = '删除此行';
+      del.onclick = function () {
+        st.rows.splice(i, 1);
+        if (st.rows.length === 0) st.rows.push({});
+        save(); renderRows(cfg);
+      };
+      tdDel.appendChild(del);
+      tr.appendChild(tdDel);
+      tbody.appendChild(tr);
+    });
+    recalcAll(cfg);
+  }
+
+  function buildSection(cfg) {
+    var st = getState(cfg);
+    var sec = document.createElement('div');
+    sec.className = 'section';
+    sec.innerHTML = '<h2>' + cfg.title + '</h2>';
+
+    var pbar = document.createElement('div');
+    pbar.className = 'params';
+    cfg.params.forEach(function (p) {
+      var d = document.createElement('span');
+      d.className = 'p';
+      d.innerHTML = '<b>' + p.label + '</b>';
+      var inp = document.createElement('input');
+      inp.type = 'number'; inp.step = 'any'; inp.inputMode = 'decimal'; inp.value = st.params[p.key];
+      inp.addEventListener('input', function () {
+        st.params[p.key] = parseFloat(inp.value) || 0;
+        save(); recalcAll(cfg);
+      });
+      d.appendChild(inp);
+      pbar.appendChild(d);
+    });
+    sec.appendChild(pbar);
+
+    var sc = document.createElement('div');
+    sc.className = 'table-scroll';
+    var table = document.createElement('table');
+    var thead = document.createElement('thead');
+    var htr = document.createElement('tr');
+    cfg.columns.forEach(function (col) {
+      var th = document.createElement('th'); th.textContent = col.label; htr.appendChild(th);
+    });
+    var thDel = document.createElement('th'); htr.appendChild(thDel);
+    thead.appendChild(htr);
+    table.appendChild(thead);
+    var tbody = document.createElement('tbody'); tbody.id = 'tb-' + cfg.id;
+    table.appendChild(tbody);
+    sc.appendChild(table);
+    sec.appendChild(sc);
+
+    var acts = document.createElement('div');
+    acts.className = 'actions';
+    var addBtn = document.createElement('button');
+    addBtn.className = 'btn'; addBtn.textContent = '+ 添加一行';
+    addBtn.onclick = function () { st.rows.push({}); save(); renderRows(cfg); };
+    var clearBtn = document.createElement('button');
+    clearBtn.className = 'btn ghost'; clearBtn.textContent = '清空';
+    clearBtn.onclick = function () {
+      if (confirm('清空本表所有记录？')) {
+        st.rows = Array.from({ length: 5 }, function () { return {}; });
+        save(); renderRows(cfg);
+      }
+    };
+    acts.appendChild(addBtn); acts.appendChild(clearBtn);
+    sec.appendChild(acts);
+
+    return sec;
+  }
+
+  var app = document.getElementById('app');
+  CONFIGS.forEach(function (cfg) {
+    var sec = buildSection(cfg);
+    app.appendChild(sec);
+    renderRows(cfg);
+  });
+
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('./sw.js').catch(function () {});
+    });
+  }
+</script>
+</body>
+</html>
